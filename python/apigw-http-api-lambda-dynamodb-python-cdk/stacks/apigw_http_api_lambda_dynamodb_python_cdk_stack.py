@@ -99,6 +99,7 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             memory_size=1024,
             timeout=Duration.minutes(5),
             log_retention=logs.RetentionDays.ONE_YEAR,
+            tracing=lambda_.Tracing.ACTIVE,
         )
 
         # grant permission to lambda to write to demo table
@@ -112,7 +113,7 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             retention=logs.RetentionDays.ONE_YEAR,
         )
 
-        # Create API Gateway with access logging
+        # Create API Gateway with access logging and X-Ray tracing
         apigw_.LambdaRestApi(
             self,
             "Endpoint",
@@ -130,5 +131,6 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
                     status=True,
                     user=True,
                 ),
+                tracing_enabled=True,
             ),
         )

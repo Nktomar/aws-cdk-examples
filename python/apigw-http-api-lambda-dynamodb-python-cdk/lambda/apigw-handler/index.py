@@ -6,6 +6,11 @@ import os
 import json
 import logging
 import uuid
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.core import patch_all
+
+# Patch all supported libraries for X-Ray tracing
+patch_all()
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -44,6 +49,8 @@ def handler(event, context):
         year = str(item["year"])
         title = str(item["title"])
         id = str(item["id"])
+        
+        # DynamoDB operation will be automatically traced by X-Ray
         dynamodb_client.put_item(
             TableName=table,
             Item={"year": {"N": year}, "title": {"S": title}, "id": {"S": id}},
@@ -65,6 +72,8 @@ def handler(event, context):
             "event": "no_payload_received"
         }))
         item_id = str(uuid.uuid4())
+        
+        # DynamoDB operation will be automatically traced by X-Ray
         dynamodb_client.put_item(
             TableName=table,
             Item={
