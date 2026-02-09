@@ -25,6 +25,12 @@ This stack implements AWS Well-Architected Framework best practices for logging:
 - **VPC Flow Logs**: Enabled for all network traffic, retained for 1 year
 - **DynamoDB**: Point-in-time recovery and streams enabled for audit trails
 
+### Distributed Tracing
+This stack implements AWS Well-Architected Framework best practices for observability:
+- **AWS X-Ray**: End-to-end tracing enabled across API Gateway, Lambda, and DynamoDB
+- **Service Map**: Visualize request flows and identify performance bottlenecks
+- **Trace Analysis**: Debug errors and latency issues with detailed subsegment data
+
 ## Setup
 
 The `cdk.json` file tells the CDK Toolkit how to execute your app.
@@ -104,13 +110,22 @@ You should get below response
 
 ## Monitoring and Logs
 
-After deployment, you can access logs through:
+After deployment, you can access logs and traces through:
 - **Lambda Logs**: CloudWatch Logs → Log group `/aws/lambda/apigw_handler`
 - **API Gateway Logs**: CloudWatch Logs → Log group created by the stack
 - **VPC Flow Logs**: CloudWatch Logs → Log group created by the stack
 - **CloudTrail**: S3 bucket configured in your CloudTrail trail
+- **X-Ray Traces**: AWS X-Ray console → Service map and trace analysis
+- **CloudWatch ServiceLens**: Integrated view of traces, metrics, logs, and alarms
 
 Logs include structured JSON format with security context (request ID, source IP, user agent) for security investigations.
+
+### Viewing X-Ray Traces
+
+1. Navigate to AWS X-Ray console
+2. View the Service Map to see request flows: API Gateway → Lambda → DynamoDB
+3. Click on traces to see detailed timing and subsegments
+4. Use CloudWatch ServiceLens for integrated observability
 
 ## Cleanup 
 Run below script to delete AWS resources created by this sample stack.
