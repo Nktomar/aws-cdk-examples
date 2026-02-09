@@ -8,6 +8,23 @@ Creates an [AWS Lambda](https://aws.amazon.com/lambda/) function writing to [Ama
 
 ![architecture](docs/architecture.png)
 
+## Prerequisites
+
+### AWS CloudTrail
+This application requires AWS CloudTrail to be enabled in your AWS account for comprehensive security logging. CloudTrail captures API-level activity for all resources created by this stack.
+
+Ensure you have:
+- An organization-wide CloudTrail trail, OR
+- A CloudTrail trail configured for the deployment account with management events enabled
+- CloudTrail logs stored in S3 with appropriate retention policies (recommended: 1-7 years)
+
+### Logging and Monitoring
+This stack implements AWS Well-Architected Framework best practices for logging:
+- **Lambda Function Logs**: Retained for 1 year in CloudWatch Logs
+- **API Gateway Access Logs**: Retained for 1 year with detailed request information
+- **VPC Flow Logs**: Enabled for all network traffic, retained for 1 year
+- **DynamoDB**: Point-in-time recovery and streams enabled for audit trails
+
 ## Setup
 
 The `cdk.json` file tells the CDK Toolkit how to execute your app.
@@ -84,6 +101,16 @@ You should get below response
 ```json
 {"message": "Successfully inserted data!"}
 ```
+
+## Monitoring and Logs
+
+After deployment, you can access logs through:
+- **Lambda Logs**: CloudWatch Logs → Log group `/aws/lambda/apigw_handler`
+- **API Gateway Logs**: CloudWatch Logs → Log group created by the stack
+- **VPC Flow Logs**: CloudWatch Logs → Log group created by the stack
+- **CloudTrail**: S3 bucket configured in your CloudTrail trail
+
+Logs include structured JSON format with security context (request ID, source IP, user agent) for security investigations.
 
 ## Cleanup 
 Run below script to delete AWS resources created by this sample stack.
