@@ -10,6 +10,7 @@ from aws_cdk import (
     aws_ec2 as ec2,
     aws_iam as iam,
     aws_logs as logs,
+    aws_wafv2 as wafv2,
     aws_cloudwatch as cloudwatch,
     Duration,
 )
@@ -147,4 +148,12 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
                 ),
                 tracing_enabled=True,
             ),
+        )
+
+        # Associate WAF Web ACL with API Gateway
+        wafv2.CfnWebACLAssociation(
+            self,
+            "WafAssociation",
+            resource_arn=f"arn:aws:apigateway:{self.region}::/restapis/{api.rest_api_id}/stages/{api.deployment_stage.stage_name}",
+            web_acl_arn=web_acl.attr_arn,
         )
