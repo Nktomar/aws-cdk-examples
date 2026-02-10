@@ -11,6 +11,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_logs as logs,
     aws_wafv2 as wafv2,
+    aws_cloudwatch as cloudwatch,
     Duration,
 )
 from constructs import Construct
@@ -101,11 +102,22 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             timeout=Duration.minutes(5),
             log_retention=logs.RetentionDays.ONE_YEAR,
             tracing=lambda_.Tracing.ACTIVE,
+            reserved_concurrent_executions=100,
         )
 
         # grant permission to lambda to write to demo table
         demo_table.grant_write_data(api_hanlder)
         api_hanlder.add_environment("TABLE_NAME", demo_table.table_name)
+
+        # CloudWatch alarm for Lambda concurrency
+        cloudwatch.Alarm(
+            self,
+            "LambdaConcurrencyAlarm",
+            metric=api_hanlder.metric_concurrent_executions(),
+            threshold=80,
+            evaluation_periods=2,
+            alarm_description="Alert when Lambda concurrency exceeds 80% of reserved limit",
+        )
 
         # Create log group for API Gateway access logs
         api_log_group = logs.LogGroup(
@@ -114,43 +126,14 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             retention=logs.RetentionDays.ONE_YEAR,
         )
 
-        # Create AWS WAF Web ACL with rate-based rule
-        web_acl = wafv2.CfnWebACL(
-            self,
-            "ApiWaf",
-            scope="REGIONAL",
-            default_action=wafv2.CfnWebACL.DefaultActionProperty(allow={}),
-            visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-                cloud_watch_metrics_enabled=True,
-                metric_name="ApiWafMetrics",
-                sampled_requests_enabled=True,
-            ),
-            rules=[
-                wafv2.CfnWebACL.RuleProperty(
-                    name="RateLimitRule",
-                    priority=1,
-                    statement=wafv2.CfnWebACL.StatementProperty(
-                        rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
-                            limit=2000,
-                            aggregate_key_type="IP",
-                        )
-                    ),
-                    action=wafv2.CfnWebACL.RuleActionProperty(block={}),
-                    visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-                        cloud_watch_metrics_enabled=True,
-                        metric_name="RateLimitRule",
-                        sampled_requests_enabled=True,
-                    ),
-                )
-            ],
-        )
-
-        # Create API Gateway with access logging and X-Ray tracing
-        api = apigw_.LambdaRestApi(
+        # Create API Gateway with access logging, X-Ray tracing, and throttling
+        apigw_.LambdaRestApi(
             self,
             "Endpoint",
             handler=api_hanlder,
             deploy_options=apigw_.StageOptions(
+                throttling_rate_limit=100,
+                throttling_burst_limit=200,
                 access_log_destination=apigw_.LogGroupLogDestination(api_log_group),
                 access_log_format=apigw_.AccessLogFormat.json_with_standard_fields(
                     caller=True,
