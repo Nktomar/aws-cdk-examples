@@ -92,6 +92,60 @@ With specific profile
 $ cdk deploy --profile test
 ```
 
+After deployment, note the API key IDs from the stack outputs. You'll need these to retrieve the actual API key values.
+
+## API Key Management
+
+This API requires an API key for all requests. Two usage tiers are available:
+
+### Retrieving API Keys
+
+After deployment, retrieve the API key values using the AWS CLI:
+
+```bash
+# Get Standard tier API key
+aws apigateway get-api-key --api-key <StandardApiKeyId> --include-value --query 'value' --output text
+
+# Get Premium tier API key
+aws apigateway get-api-key --api-key <PremiumApiKeyId> --include-value --query 'value' --output text
+```
+
+Replace `<StandardApiKeyId>` and `<PremiumApiKeyId>` with the values from the stack outputs.
+
+### Usage Tiers
+
+#### Standard Tier
+- **Rate Limit**: 50 requests per second
+- **Burst Limit**: 100 requests
+- **Daily Quota**: 10,000 requests per day
+- **Use Case**: Development, testing, low-volume applications
+
+#### Premium Tier
+- **Rate Limit**: 100 requests per second
+- **Burst Limit**: 200 requests
+- **Daily Quota**: 50,000 requests per day
+- **Use Case**: Production applications, high-volume consumers
+
+### Making API Requests
+
+Include the API key in the `x-api-key` header:
+
+```bash
+curl -X POST https://YOUR_API_GATEWAY_URL/ \
+  -H "x-api-key: YOUR_API_KEY_VALUE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "year": "2023",
+    "title": "Test Movie",
+    "id": "12"
+  }'
+```
+
+### Error Responses
+
+- **403 Forbidden**: Missing or invalid API key
+- **429 Too Many Requests**: Rate limit or quota exceeded for your usage plan
+
 ## After Deploy
 Navigate to AWS API Gateway console and test the API with below sample data 
 ```json
@@ -101,6 +155,8 @@ Navigate to AWS API Gateway console and test the API with below sample data
     "id":"12"
 }
 ```
+
+**Important**: Remember to include the `x-api-key` header with your API key value.
 
 You should get below response 
 
@@ -120,6 +176,12 @@ This stack implements AWS Well-Architected Framework best practice **REL05-BP02:
 - **Behavior**: Returns `429 Too Many Requests` when exceeded
 - **Purpose**: Protects backend Lambda and DynamoDB from overload
 
+#### Usage Plan Throttling (Per Consumer)
+- **Standard Tier**: 50 RPS, 100 burst, 10k/day quota
+- **Premium Tier**: 100 RPS, 200 burst, 50k/day quota
+- **Behavior**: Returns `429 Too Many Requests` when consumer exceeds their tier limits
+- **Purpose**: Prevents single consumer from impacting others
+
 #### AWS WAF Rate Limiting
 - **Rate Limit**: 2000 requests per 5 minutes per IP address
 - **Behavior**: Returns `403 Forbidden` when exceeded
@@ -133,7 +195,8 @@ This stack implements AWS Well-Architected Framework best practice **REL05-BP02:
 ### Capacity Planning
 
 The current configuration supports:
-- **Sustained Traffic**: 100 requests/second
+- **Sustained Traffic**: 100 requests/second (stage limit)
+- **Per-Consumer Traffic**: 50 RPS (Standard) or 100 RPS (Premium)
 - **Burst Traffic**: 200 requests (short duration)
 - **Concurrent Processing**: Up to 100 Lambda executions
 - **DynamoDB**: On-demand capacity mode (auto-scales)
@@ -161,6 +224,9 @@ Before increasing throttle limits, perform load testing to validate capacity:
        - duration: 60
          arrivalRate: 150
          name: "Spike test"
+     http:
+       headers:
+         x-api-key: "YOUR_API_KEY_VALUE"
    scenarios:
      - name: "POST request"
        flow:
@@ -182,12 +248,14 @@ Before increasing throttle limits, perform load testing to validate capacity:
    - API Gateway metrics (4xx/5xx errors, latency, count)
    - DynamoDB metrics (consumed capacity, throttled requests)
    - WAF metrics (blocked/allowed requests)
+   - Usage plan metrics (per-consumer throttling)
 
 5. **Analyze results**:
-   - Verify 429 responses when exceeding 100 RPS
+   - Verify 429 responses when exceeding limits
    - Check Lambda concurrency stays below 100
    - Confirm no DynamoDB throttling
    - Validate P99 latency remains acceptable
+   - Verify per-consumer limits work correctly
 
 ### Increasing Throttle Limits
 
@@ -197,8 +265,20 @@ To increase limits safely:
 2. **Update CDK stack** with new limits:
    ```python
    # In apigw_http_api_lambda_dynamodb_python_cdk_stack.py
+   
+   # Stage throttling
    throttling_rate_limit=200,  # Increase from 100
    throttling_burst_limit=400,  # Increase from 200
+   
+   # Usage plans
+   standard_usage_plan = api.add_usage_plan(
+       throttle=apigw_.ThrottleSettings(
+           rate_limit=100,  # Increase from 50
+           burst_limit=200,  # Increase from 100
+       ),
+   )
+   
+   # Lambda concurrency
    reserved_concurrent_executions=200,  # Increase from 100
    ```
 3. **Redeploy**: `cdk deploy`
@@ -216,6 +296,7 @@ After deployment, you can access logs and traces through:
 - **CloudTrail**: S3 bucket configured in your CloudTrail trail
 - **X-Ray Traces**: AWS X-Ray console → Service map and trace analysis
 - **CloudWatch ServiceLens**: Integrated view of traces, metrics, logs, and alarms
+- **Usage Plan Metrics**: API Gateway console → Usage Plans → View metrics per API key
 - **WAF Logs**: AWS WAF console → Sampled requests and blocked traffic
 
 Logs include structured JSON format with security context (request ID, source IP, user agent) for security investigations.
@@ -227,12 +308,21 @@ Logs include structured JSON format with security context (request ID, source IP
 3. Click on traces to see detailed timing and subsegments
 4. Use CloudWatch ServiceLens for integrated observability
 
+### Monitoring API Key Usage
+
+Monitor per-consumer usage in the API Gateway console:
+1. Navigate to API Gateway → Usage Plans
+2. Select a usage plan (Standard or Premium)
+3. View API Keys tab to see associated consumers
+4. Click on an API key to view usage metrics and quota consumption
+
 ### Monitoring Throttled Requests
 
 Monitor throttling behavior in CloudWatch:
 - **API Gateway**: `4XXError` metric (includes 429 responses)
 - **Lambda**: `ConcurrentExecutions` metric with alarm at 80
 - **WAF**: `BlockedRequests` metric for rate-limited IPs
+- **Usage Plans**: Per-consumer throttling metrics in API Gateway console
 
 ## Cleanup 
 Run below script to delete AWS resources created by this sample stack.
