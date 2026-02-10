@@ -114,7 +114,7 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
         cloudwatch.Alarm(
             self,
             "LambdaConcurrencyAlarm",
-            metric=api_hanlder.metric_concurrent_executions(),
+            metric=api_hanlder.metric("ConcurrentExecutions"),
             threshold=80,
             evaluation_periods=2,
             alarm_description="Alert when Lambda concurrency exceeds 80% of reserved limit",
