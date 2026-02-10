@@ -164,6 +164,129 @@ You should get below response
 {"message": "Successfully inserted data!"}
 ```
 
+## Throttle Limits and Capacity
+
+This stack implements AWS Well-Architected Framework best practice **REL05-BP02: Throttle requests** with multi-layered throttling to protect against resource exhaustion:
+
+### Configured Throttle Limits
+
+#### API Gateway Stage Throttling
+- **Rate Limit**: 100 requests per second (sustained)
+- **Burst Limit**: 200 requests (temporary spike capacity)
+- **Behavior**: Returns `429 Too Many Requests` when exceeded
+- **Purpose**: Protects backend Lambda and DynamoDB from overload
+
+#### Usage Plan Throttling (Per Consumer)
+- **Standard Tier**: 50 RPS, 100 burst, 10k/day quota
+- **Premium Tier**: 100 RPS, 200 burst, 50k/day quota
+- **Behavior**: Returns `429 Too Many Requests` when consumer exceeds their tier limits
+- **Purpose**: Prevents single consumer from impacting others
+
+#### AWS WAF Rate Limiting
+- **Rate Limit**: 2000 requests per 5 minutes per IP address
+- **Behavior**: Returns `403 Forbidden` when exceeded
+- **Purpose**: Protects against DDoS attacks and malicious traffic from individual sources
+
+#### Lambda Reserved Concurrency
+- **Concurrent Executions**: 100 maximum
+- **CloudWatch Alarm**: Triggers at 80 concurrent executions (80% threshold)
+- **Purpose**: Prevents consuming all account-level Lambda concurrency (default 1000 per region)
+
+### Capacity Planning
+
+The current configuration supports:
+- **Sustained Traffic**: 100 requests/second (stage limit)
+- **Per-Consumer Traffic**: 50 RPS (Standard) or 100 RPS (Premium)
+- **Burst Traffic**: 200 requests (short duration)
+- **Concurrent Processing**: Up to 100 Lambda executions
+- **DynamoDB**: On-demand capacity mode (auto-scales)
+
+### Load Testing Recommendations
+
+Before increasing throttle limits, perform load testing to validate capacity:
+
+1. **Install Artillery** (Node.js load testing tool):
+   ```bash
+   npm install -g artillery
+   ```
+
+2. **Create test configuration** (`artillery-config.yml`):
+   ```yaml
+   config:
+     target: "https://YOUR_API_GATEWAY_URL"
+     phases:
+       - duration: 60
+         arrivalRate: 50
+         name: "Warm up"
+       - duration: 120
+         arrivalRate: 100
+         name: "Sustained load"
+       - duration: 60
+         arrivalRate: 150
+         name: "Spike test"
+     http:
+       headers:
+         x-api-key: "YOUR_API_KEY_VALUE"
+   scenarios:
+     - name: "POST request"
+       flow:
+         - post:
+             url: "/"
+             json:
+               year: "2023"
+               title: "Load Test"
+               id: "{{ $randomString() }}"
+   ```
+
+3. **Run load test**:
+   ```bash
+   artillery run artillery-config.yml
+   ```
+
+4. **Monitor during test**:
+   - CloudWatch Lambda metrics (concurrent executions, duration, errors)
+   - API Gateway metrics (4xx/5xx errors, latency, count)
+   - DynamoDB metrics (consumed capacity, throttled requests)
+   - WAF metrics (blocked/allowed requests)
+   - Usage plan metrics (per-consumer throttling)
+
+5. **Analyze results**:
+   - Verify 429 responses when exceeding limits
+   - Check Lambda concurrency stays below 100
+   - Confirm no DynamoDB throttling
+   - Validate P99 latency remains acceptable
+   - Verify per-consumer limits work correctly
+
+### Increasing Throttle Limits
+
+To increase limits safely:
+
+1. **Verify current capacity** through load testing
+2. **Update CDK stack** with new limits:
+   ```python
+   # In apigw_http_api_lambda_dynamodb_python_cdk_stack.py
+   
+   # Stage throttling
+   throttling_rate_limit=200,  # Increase from 100
+   throttling_burst_limit=400,  # Increase from 200
+   
+   # Usage plans
+   standard_usage_plan = api.add_usage_plan(
+       throttle=apigw_.ThrottleSettings(
+           rate_limit=100,  # Increase from 50
+           burst_limit=200,  # Increase from 100
+       ),
+   )
+   
+   # Lambda concurrency
+   reserved_concurrent_executions=200,  # Increase from 100
+   ```
+3. **Redeploy**: `cdk deploy`
+4. **Re-test** with higher load to validate
+5. **Update documentation** with new tested limits
+
+**Important**: Always ensure Lambda reserved concurrency and API Gateway throttle limits are aligned to prevent Lambda throttling errors.
+
 ## Monitoring and Logs
 
 After deployment, you can access logs and traces through:
@@ -174,6 +297,7 @@ After deployment, you can access logs and traces through:
 - **X-Ray Traces**: AWS X-Ray console → Service map and trace analysis
 - **CloudWatch ServiceLens**: Integrated view of traces, metrics, logs, and alarms
 - **Usage Plan Metrics**: API Gateway console → Usage Plans → View metrics per API key
+- **WAF Logs**: AWS WAF console → Sampled requests and blocked traffic
 
 Logs include structured JSON format with security context (request ID, source IP, user agent) for security investigations.
 
@@ -191,6 +315,14 @@ Monitor per-consumer usage in the API Gateway console:
 2. Select a usage plan (Standard or Premium)
 3. View API Keys tab to see associated consumers
 4. Click on an API key to view usage metrics and quota consumption
+
+### Monitoring Throttled Requests
+
+Monitor throttling behavior in CloudWatch:
+- **API Gateway**: `4XXError` metric (includes 429 responses)
+- **Lambda**: `ConcurrentExecutions` metric with alarm at 80
+- **WAF**: `BlockedRequests` metric for rate-limited IPs
+- **Usage Plans**: Per-consumer throttling metrics in API Gateway console
 
 ## Cleanup 
 Run below script to delete AWS resources created by this sample stack.
