@@ -13,6 +13,7 @@ from aws_cdk import (
     aws_wafv2 as wafv2,
     aws_cloudwatch as cloudwatch,
     Duration,
+    CfnOutput,
 )
 from constructs import Construct
 
@@ -126,8 +127,39 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             retention=logs.RetentionDays.ONE_YEAR,
         )
 
+        # Create AWS WAF Web ACL with rate-based rule
+        web_acl = wafv2.CfnWebACL(
+            self,
+            "ApiWaf",
+            scope="REGIONAL",
+            default_action=wafv2.CfnWebACL.DefaultActionProperty(allow={}),
+            visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
+                cloud_watch_metrics_enabled=True,
+                metric_name="ApiWafMetrics",
+                sampled_requests_enabled=True,
+            ),
+            rules=[
+                wafv2.CfnWebACL.RuleProperty(
+                    name="RateLimitRule",
+                    priority=1,
+                    statement=wafv2.CfnWebACL.StatementProperty(
+                        rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
+                            limit=2000,
+                            aggregate_key_type="IP",
+                        )
+                    ),
+                    action=wafv2.CfnWebACL.RuleActionProperty(block={}),
+                    visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
+                        cloud_watch_metrics_enabled=True,
+                        metric_name="RateLimitRule",
+                        sampled_requests_enabled=True,
+                    ),
+                )
+            ],
+        )
+
         # Create API Gateway with access logging, X-Ray tracing, and throttling
-        apigw_.LambdaRestApi(
+        api = apigw_.LambdaRestApi(
             self,
             "Endpoint",
             handler=api_hanlder,
@@ -148,7 +180,53 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
                 ),
                 tracing_enabled=True,
             ),
+            default_method_options=apigw_.MethodOptions(
+                api_key_required=True,
+            ),
         )
+
+        # Create usage plan for standard tier consumers
+        standard_usage_plan = api.add_usage_plan(
+            "StandardUsagePlan",
+            name="StandardUsagePlan",
+            throttle=apigw_.ThrottleSettings(
+                rate_limit=50,
+                burst_limit=100,
+            ),
+            quota=apigw_.QuotaSettings(
+                limit=10000,
+                period=apigw_.Period.DAY,
+            ),
+        )
+
+        # Create usage plan for premium tier consumers
+        premium_usage_plan = api.add_usage_plan(
+            "PremiumUsagePlan",
+            name="PremiumUsagePlan",
+            throttle=apigw_.ThrottleSettings(
+                rate_limit=100,
+                burst_limit=200,
+            ),
+            quota=apigw_.QuotaSettings(
+                limit=50000,
+                period=apigw_.Period.DAY,
+            ),
+        )
+
+        # Create API keys for different consumers
+        standard_api_key = api.add_api_key(
+            "StandardApiKey",
+            api_key_name="StandardConsumerKey",
+        )
+
+        premium_api_key = api.add_api_key(
+            "PremiumApiKey",
+            api_key_name="PremiumConsumerKey",
+        )
+
+        # Associate API keys with usage plans
+        standard_usage_plan.add_api_key(standard_api_key)
+        premium_usage_plan.add_api_key(premium_api_key)
 
         # Associate WAF Web ACL with API Gateway
         wafv2.CfnWebACLAssociation(
@@ -156,4 +234,19 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             "WafAssociation",
             resource_arn=f"arn:aws:apigateway:{self.region}::/restapis/{api.rest_api_id}/stages/{api.deployment_stage.stage_name}",
             web_acl_arn=web_acl.attr_arn,
+        )
+
+        # Output API key IDs for retrieval
+        CfnOutput(
+            self,
+            "StandardApiKeyId",
+            value=standard_api_key.key_id,
+            description="Standard tier API key ID (retrieve value with: aws apigateway get-api-key --api-key <id> --include-value)",
+        )
+
+        CfnOutput(
+            self,
+            "PremiumApiKeyId",
+            value=premium_api_key.key_id,
+            description="Premium tier API key ID (retrieve value with: aws apigateway get-api-key --api-key <id> --include-value)",
         )
