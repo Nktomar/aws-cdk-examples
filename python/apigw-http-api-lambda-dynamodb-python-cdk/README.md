@@ -92,6 +92,60 @@ With specific profile
 $ cdk deploy --profile test
 ```
 
+After deployment, note the API key IDs from the stack outputs. You'll need these to retrieve the actual API key values.
+
+## API Key Management
+
+This API requires an API key for all requests. Two usage tiers are available:
+
+### Retrieving API Keys
+
+After deployment, retrieve the API key values using the AWS CLI:
+
+```bash
+# Get Standard tier API key
+aws apigateway get-api-key --api-key <StandardApiKeyId> --include-value --query 'value' --output text
+
+# Get Premium tier API key
+aws apigateway get-api-key --api-key <PremiumApiKeyId> --include-value --query 'value' --output text
+```
+
+Replace `<StandardApiKeyId>` and `<PremiumApiKeyId>` with the values from the stack outputs.
+
+### Usage Tiers
+
+#### Standard Tier
+- **Rate Limit**: 50 requests per second
+- **Burst Limit**: 100 requests
+- **Daily Quota**: 10,000 requests per day
+- **Use Case**: Development, testing, low-volume applications
+
+#### Premium Tier
+- **Rate Limit**: 100 requests per second
+- **Burst Limit**: 200 requests
+- **Daily Quota**: 50,000 requests per day
+- **Use Case**: Production applications, high-volume consumers
+
+### Making API Requests
+
+Include the API key in the `x-api-key` header:
+
+```bash
+curl -X POST https://YOUR_API_GATEWAY_URL/ \
+  -H "x-api-key: YOUR_API_KEY_VALUE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "year": "2023",
+    "title": "Test Movie",
+    "id": "12"
+  }'
+```
+
+### Error Responses
+
+- **403 Forbidden**: Missing or invalid API key
+- **429 Too Many Requests**: Rate limit or quota exceeded for your usage plan
+
 ## After Deploy
 Navigate to AWS API Gateway console and test the API with below sample data 
 ```json
@@ -101,6 +155,8 @@ Navigate to AWS API Gateway console and test the API with below sample data
     "id":"12"
 }
 ```
+
+**Important**: Remember to include the `x-api-key` header with your API key value.
 
 You should get below response 
 
@@ -117,6 +173,7 @@ After deployment, you can access logs and traces through:
 - **CloudTrail**: S3 bucket configured in your CloudTrail trail
 - **X-Ray Traces**: AWS X-Ray console → Service map and trace analysis
 - **CloudWatch ServiceLens**: Integrated view of traces, metrics, logs, and alarms
+- **Usage Plan Metrics**: API Gateway console → Usage Plans → View metrics per API key
 
 Logs include structured JSON format with security context (request ID, source IP, user agent) for security investigations.
 
@@ -126,6 +183,14 @@ Logs include structured JSON format with security context (request ID, source IP
 2. View the Service Map to see request flows: API Gateway → Lambda → DynamoDB
 3. Click on traces to see detailed timing and subsegments
 4. Use CloudWatch ServiceLens for integrated observability
+
+### Monitoring API Key Usage
+
+Monitor per-consumer usage in the API Gateway console:
+1. Navigate to API Gateway → Usage Plans
+2. Select a usage plan (Standard or Premium)
+3. View API Keys tab to see associated consumers
+4. Click on an API key to view usage metrics and quota consumption
 
 ## Cleanup 
 Run below script to delete AWS resources created by this sample stack.
