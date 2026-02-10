@@ -10,6 +10,7 @@ from aws_cdk import (
     aws_ec2 as ec2,
     aws_iam as iam,
     aws_logs as logs,
+    aws_cloudwatch as cloudwatch,
     Duration,
 )
 from constructs import Construct
@@ -100,11 +101,22 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             timeout=Duration.minutes(5),
             log_retention=logs.RetentionDays.ONE_YEAR,
             tracing=lambda_.Tracing.ACTIVE,
+            reserved_concurrent_executions=100,
         )
 
         # grant permission to lambda to write to demo table
         demo_table.grant_write_data(api_hanlder)
         api_hanlder.add_environment("TABLE_NAME", demo_table.table_name)
+
+        # CloudWatch alarm for Lambda concurrency
+        cloudwatch.Alarm(
+            self,
+            "LambdaConcurrencyAlarm",
+            metric=api_hanlder.metric_concurrent_executions(),
+            threshold=80,
+            evaluation_periods=2,
+            alarm_description="Alert when Lambda concurrency exceeds 80% of reserved limit",
+        )
 
         # Create log group for API Gateway access logs
         api_log_group = logs.LogGroup(
